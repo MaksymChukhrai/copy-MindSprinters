@@ -1,0 +1,179 @@
+var isMobile = false;
+
+jQuery(document).ready(function() {
+	isMobile = jQuery('.mind_header .mob-menu-btn').is(':visible');
+
+	jQuery('.mind_header .mob-menu-btn').on('click', function(e) {
+		jQuery('.mind_menu.top-menu').toggleClass('show');
+	});
+
+	jQuery('body').on('submit', '.mind_form', function(e) {
+		var c_form = jQuery(this);
+
+		if (c_form.hasClass('no-ajax')) {
+			return;
+		}
+
+		e.preventDefault();
+
+		var c_action = jQuery(this).attr('action');
+		var c_form_ctx = '.' + c_form[0].className.replace(/ /g, '.');
+		var c_form_ofs = !isNaN(c_form.data('ofs')) ? c_form.data('ofs') : 10;
+		var c_form_ntf = c_form.find('.mind_notification');
+		var c_form_no_reset = c_form.hasClass('no-reset') ? 1 : 0;
+		var snd_data = new FormData();
+
+		var rq_files = c_form.find('.file-field input');
+		var rq_file_alw = true;
+
+		if (rq_files.length) {
+			var alw_types = ['text/plain', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv', 'application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'video/mp4', 'video/webm'];
+			var rq_files = c_form.find('.file-field .form-image').length ? c_form.find('.file-field .form-image') : rq_files[0].files;
+
+			for (var i = 0; i <= rq_files.length - 1; i++) {
+				var c_file = rq_files[0].tagName === undefined ? rq_files[i] : jQuery(rq_files[i]).data('file');
+
+				if (jQuery.inArray(c_file.type, alw_types) == -1 || c_file.type == '') {
+					rq_file_alw = false;
+					show_notification({
+						'msg': lang.text_file + ' ' + c_file.name + ' - ' + lang.text_file_disallow,
+						'type': 'error',
+						'ctx': c_form_ctx,
+						'hide': 0
+					});
+				} else if (c_file.size > 20970000) {
+					rq_file_alw = false;
+					show_notification({
+						'msg': lang.text_file + ' ' + c_file.name + ' - ' + lang.text_file_too_big,
+						'type': 'error',
+						'ctx': c_form_ctx,
+						'hide': 0
+					});
+				}
+
+				if (rq_file_alw) {
+					snd_data.append('file-' + i, c_file);
+				} else {
+					jQuery('html,body').animate({
+						scrollTop: c_form_ntf.offset().top - c_form_ofs
+					}, 1000);
+
+					return;
+				}
+			}
+		}
+
+		var c_fields = c_form.serializeArray();
+		for (var i = 0; i <= c_fields.length - 1; i++) {
+			snd_data.append(c_fields[i]['name'], c_fields[i]['value']);
+		}
+
+		if (document.activeElement && document.activeElement.tagName == "BUTTON" && document.activeElement.name && document.activeElement.value) {
+			snd_data.append(document.activeElement.name, document.activeElement.value);
+		}
+
+		if (e.originalEvent && e.originalEvent.submitter && e.originalEvent.submitter.tagName == "BUTTON" && e.originalEvent.submitter.name && e.originalEvent.submitter.value) {
+			snd_data.append(e.originalEvent.submitter.name, e.originalEvent.submitter.value);
+		}
+
+		if (rq_file_alw && c_action && !c_form.hasClass('proccess')) {
+			c_form.addClass('proccess');
+
+			jQuery.ajax({
+				url: c_action,
+				type: 'POST',
+				data: snd_data,
+				dataType: 'json',
+				cache: false,
+				contentType: false,
+				processData: false,
+				success: function(json) {
+					c_form.find('.form-field.error').removeClass('error').find('.error-info').remove();
+					c_form.removeClass('proccess');
+
+					if (json['redirect']) {
+						location.href = json['redirect'];
+					} else if (json['success']) {
+						c_form.trigger('success', [json, c_form_ctx]);
+
+						var form_events = jQuery._data(c_form[0], 'events');
+
+						if (form_events && form_events['success'] !== undefined) {
+
+						} else {
+							show_notification({
+								'msg': json['success'],
+								'ctx': c_form_ctx
+							});
+						}
+
+						if (!c_form_no_reset) {
+							if (rq_files.length) {
+								c_form.find('input[type="file"]').val('').change();
+							}
+
+							c_form.trigger('reset');
+						}
+					} else if (json['error']) {
+						c_form.trigger('error', [json, c_form_ctx]);
+
+						if (json['error']['error'] && json['error']['error'] instanceof Array) {
+							for (var i = 0; i <= json['error']['error'].length - 1; i++) {
+								show_notification({
+									'msg': json['error']['error'][i],
+									'type': 'error',
+									'ctx': c_form_ctx
+								});
+							}
+
+							jQuery('html,body').animate({
+								scrollTop: c_form_ntf.offset().top - c_form_ofs
+							}, 1000);
+						}
+
+						for (var error in json['error']) {
+							if (json['error'].hasOwnProperty(error) && error != 'error') {
+								c_form.find('input[name="' + error + '"], select[name="' + error + '"], textarea[name="' + error + '"]').first().before('<div class="error-info"><div class="msg">' + json['error'][error] + '</div></div>').parents('.form-field').first().addClass('error');
+							}
+						}
+					}
+
+					var captcha = c_form.find('.form-field.captcha .g-recaptcha');
+
+					if (captcha.length) {
+						var wgt_id = captcha.data('wgt-id') ? captcha.data('wgt-id') : 0;
+						grecaptcha.reset(wgt_id);
+					}
+				}
+			});
+		}
+	});
+});
+
+function show_notification(params) {
+	var msg = params.msg ? params.msg : '';
+	var type = ['success', 'error', 'warning'].indexOf(params.type) + 1 ? params.type : 'success';
+	var clear = params.clear ? params.clear : 0;
+	var ctx = typeof params.ctx === 'string' ? params.ctx + ' ' : '';
+	var hide = params.hide || params.hide == 0 ? params.hide : 10000;
+	var ntf_cont = jQuery(ctx + '.mind_notification').first();
+	var msg_id = Math.round(Math.random() * 1000);
+
+	if (clear) {
+		ntf_cont.children('div').remove();
+	}
+
+	var msg_icon = type == 'warning' ? 'warning' : (type == 'error' ? 'remove' : 'apply');
+
+	ntf_cont.append('<div class="' + type + '" id="ntf_' + msg_id + '" style="display:none"><svg class="icon icon-' + msg_icon + '"><use href="icons.svg#icon-' + msg_icon + '"></use></svg>' + msg + '<div class="close"><svg class="icon icon-close"><use href="icons.svg#icon-close"></use></svg></div></div>');
+	ntf_cont.children('div#ntf_' + msg_id).children('.close').click(function() {
+		jQuery(this).parent().fadeOut(400, function() {
+			jQuery(this).remove();
+		});
+	}).parent().fadeIn();
+	if (hide) {
+		setTimeout(function() {
+			ntf_cont.children('div#ntf_' + msg_id).children('.close').click();
+		}, hide);
+	}
+}
